@@ -1,20 +1,26 @@
 import urllib, urllib2, base64
 
-PREFIX = '/video/oz'
-NAME = 'OZ'
-HOST = 'api.oz.com'
+# Const
+VERSION  = 0.1.1
+ART      = 'art-default.png'
+ICON     = 'icon-default.png'
+PREFIX   = '/video/oz'
+HOST     = 'api.oz.com'
 WAYPOINT = 'https://'+HOST+'/v1/'
-USER_AGENT = 'OZDroidz/1.5.0.3 (XBMC; Android 4.4.2)'
+AGENT    = 'OZ.bundle '+VERSION+' (Plex Media Server)'
 X_SECRET = 'b89b0060-cece-11e3-b6e1-7f4ae3f97677'
-X_TOKEN = 'ozmobileandroid'
+X_TOKEN  = 'ozmobileandroid'
+
 
 ####################################################################################################
 def Start():
-	ObjectContainer.title1 = NAME
-	if Dict['access_token'] == None:
-		Dict['access_token'] = GetSession()
-	else:
-		Log('We have access token!')
+
+	Log('Starting OZ (version %s)', VERSION)
+	ObjectContainer.title1 = 'OZ'
+	Dict['auth_error'] = None
+
+	if 'access_token' not in Dict:
+		GetSession()
 
 
 ####################################################################################################
@@ -22,7 +28,7 @@ def Request(Path):
 	url = WAYPOINT + Path
 	request = {}
 	headers = {}
-	headers['User-Agent'] = USER_AGENT
+	headers['User-Agent'] = AGENT
 	headers['x-application-secret'] = X_SECRET
 	headers['x-application-token'] = X_TOKEN
 	headers["Authorization"] = "Bearer " + Dict['access_token']
@@ -39,7 +45,7 @@ def GetSession():
 	url = WAYPOINT + 'authorizations'
 	request = {}
 	headers = {}
-	headers['User-Agent'] = USER_AGENT
+	headers['User-Agent'] = AGENT
 	headers['x-application-secret'] = X_SECRET
 	headers['x-application-token'] = X_TOKEN
 	if (u and p):
@@ -48,11 +54,13 @@ def GetSession():
 			body = urllib2.urlopen(urllib2.Request(url, JSON.StringFromObject(request), headers)).read()
 			response = JSON.ObjectFromString(body)
 			if ('code' in response and response['code'] == 'InvalidCredentials'):
+				Dict['auth_error'] = L('Invalid credentials')
 				return False
 			else:
-				return response['access_token']
+				Dict['access_token'] = response['access_token']
+				return True
 		except urllib2.HTTPError, e:
-			Log('Could not authenticate')
+			Dict['auth_error'] = L('Could not authenticate') + ': %s' % e.reason
 			return e.code
 		except:
 			return L('ErrorNotRunning'), {}
@@ -85,15 +93,23 @@ def GetChannel(channels, channel):
 
 
 ####################################################################################################
-@handler(PREFIX, NAME)
+@handler(PREFIX, 'OZ', art=ART, thumb=ICON)
 def MainMenu():
 	
 	oc = ObjectContainer()
 
-	oc.add(DirectoryObject(key = Callback(NowMenu),                      title = 'Now'))
-	oc.add(DirectoryObject(key = Callback(ChannelMenu),                  title = 'Channels'))
-	oc.add(DirectoryObject(key = Callback(VodMenu, category = 'movies'), title = 'Movies'))
-	oc.add(DirectoryObject(key = Callback(VodMenu, category = 'series'), title = 'TV Shows'))
+	if Dict['auth_error'] != None:
+		oc.title = L('Could not authenticate')
+		oc.message = Dict['auth_error']
+		return oc
+
+	oc.add(DirectoryObject(key = Callback(NowMenu),                      title = L('Now')))
+	oc.add(DirectoryObject(key = Callback(ChannelMenu),                  title = L('Channels')))
+	oc.add(DirectoryObject(key = Callback(VodMenu, category = 'movies'), title = L('Movies')))
+	oc.add(DirectoryObject(key = Callback(VodMenu, category = 'series'), title = L('TV Shows')))
+
+	# Experimental
+	oc.add(InputDirectoryObject(key = Callback(Search, title = L('Search')), prompt = L('Search'), title = L('Search')))
 
 	return oc
 
@@ -102,7 +118,7 @@ def MainMenu():
 @route(PREFIX + '/now')
 def NowMenu(selected = None):
 
-	oc = ObjectContainer(title2 = 'Now')
+	oc = ObjectContainer(title2 = L('Now'))
 
 	items = []
 	channels = Request('indexes/user_channels')
@@ -168,7 +184,7 @@ def NowMenu(selected = None):
 @route(PREFIX + '/channels')
 def ChannelMenu(selected = None):
 
-	oc = ObjectContainer(title2 = 'Channels')
+	oc = ObjectContainer(title2 = L('Channels'))
 
 	channels = Request('indexes/user_channels')
 
@@ -202,16 +218,16 @@ def ChannelMenu(selected = None):
 def VodMenu(category = None):
 
 	if category == 'series':
-		title = 'TV Shows'
+		title = L('TV Shows')
 
 	if category == 'movies':
-		title = 'Movies'
+		title = L('Movies')
 
 	oc = ObjectContainer(title2 = title)
 
 	providers = Request('vod/providers')
 
-	oc.add(DirectoryObject(key = Callback(VodMenuChannel, category = category, title = 'All'), title = 'All channels'))
+	oc.add(DirectoryObject(key = Callback(VodMenuChannel, category = category, title = 'All'), title = L('All channels')))
 
 	for provider in providers:
 		if provider['has_access'] == True:
@@ -241,7 +257,7 @@ def VodMenuChannel(category, title, provider = False, page = 0, selected = None)
 			elif 'original_title' in item['series']:
 				title = item['series']['original_title']
 			else:
-				title = 'Unknown'
+				title = L('Unknown')
 			thumb = GetStill(item)
 			if selected == None:
 				oc.add(DirectoryObject(key = Callback(VodMenuSeries, title = title, series = item['series']['id']), title = title, thumb = thumb))
@@ -264,7 +280,7 @@ def VodMenuChannel(category, title, provider = False, page = 0, selected = None)
 				))
 
 	if len(oc) == 50:
-		oc.add(NextPageObject(key = Callback(VodMenuChannel, category = category, title = title, provider = provider, page = int(page) + 1), title = 'More...'))
+		oc.add(NextPageObject(key = Callback(VodMenuChannel, category = category, title = title, provider = provider, page = int(page) + 1), title = L('More...')))
 
 	if len(oc) < 1:
 		return NoContentFound(oc, title)
@@ -307,6 +323,54 @@ def VodMenuSeries(title, series, selected = None):
 
 
 ####################################################################################################
+@route(PREFIX + '/search')
+def Search(query = ''):
+
+	oc = ObjectContainer(title2 = L('Search results'))
+
+	# get both movies and series
+	url = 'vod?items=50&page=1&search=' + query
+	items = Request(url)
+
+	for item in items:
+		if 'series' in item:
+			if 'title' in item['series']:
+				title = item['series']['title']
+			elif 'original_title' in item['series']:
+				title = item['series']['original_title']
+			else:
+				title = L('Unknown')
+			thumb = GetStill(item)
+			if selected == None:
+				oc.add(DirectoryObject(key = Callback(VodMenuSeries, title = title, series = item['series']['id']), title = title, thumb = thumb))
+		else:
+			content = item['content']
+			offering = item['offerings'][0]
+			title = GetTitle(content, offering)
+			thumb = GetStill(content)
+			if selected == None or selected == content['id']:
+				oc.add(VideoClipObject(
+					key = Callback(VodMenuChannel, category = category, title = title, provider = provider, page = page, selected = content['id']),
+					rating_key = content['id'],
+					title = title,
+					thumb = thumb,
+					items = [
+						MediaObject(
+							parts = [PartObject(key=HTTPLiveStreamURL(Callback(PlayOffering, offering = offering)))]
+						)
+					]
+				))
+
+	if len(oc) == 50:
+		oc.add(NextPageObject(key = Callback(VodMenuChannel, category = category, title = title, provider = provider, page = int(page) + 1), title = L('More...')))
+
+	if len(oc) < 1:
+		return NoContentFound(oc, title)
+
+	return oc
+
+
+####################################################################################################
 def PlayOffering(offering):
 	token = Request('offering/' + offering['organization'] + '/' + offering['key'] + '/token')
 	return Redirect(token['url'])
@@ -315,7 +379,7 @@ def PlayOffering(offering):
 ####################################################################################################
 def NoContentFound(oc, title):
 	oc.header  = title
-	oc.message = "No content found."
+	oc.message = L('No content found')
 	return oc
 
 
