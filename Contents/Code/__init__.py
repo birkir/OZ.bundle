@@ -1,7 +1,7 @@
 import urllib, urllib2, base64
 
 # Const
-VERSION  = 0.1.1
+VERSION  = '0.1.1'
 ART      = 'art-default.png'
 ICON     = 'icon-default.png'
 PREFIX   = '/video/oz'
